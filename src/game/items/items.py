@@ -1,4 +1,6 @@
 from enum import Enum
+from typing import Dict
+from pydantic import BaseModel
 
 class ItemTypeEnum(Enum):
     WEAPON = 1
@@ -16,32 +18,41 @@ class PotionEffectEnum(Enum):
     HEAL = 1
     DEFENSE = 2
 
-class Item:
-    def __init__(self, type:ItemTypeEnum, rarity:ItemRarityEnum):
-        self.type = type
-        self.rarity = rarity
+class Item(BaseModel):
+    type: ItemTypeEnum
+    name: str
+
+class Inventory(BaseModel):
+    items: Dict[str, Item] = {}
+    gold: int
+
+    def items_to_context(self):
+        res = ''
+        for _, item in self.items.items():
+            if isinstance(item, Weapon):
+                res += f"Weapon: {item.name} - Damage: {item.damage}\n"
+            elif isinstance(item, Armour):
+                res += f"Armour: {item.name} - Defense: {item.defense}\n"
+            elif isinstance(item, Potion):
+                res += f"Potion: {item.name} - Effect: {item.effect} Points: {item.points}\n"
+            else:
+                res += "unknown item \n"
+        return res
 
 class Weapon(Item):
-    def __init__(self, name:str, damage:int):
-        super().__init__(ItemTypeEnum.WEAPON, name)
-        self.damage = damage
+    type: ItemTypeEnum = ItemTypeEnum.WEAPON
+    damage: int
 
 class Armour(Item):
-    def __init__(self, name:str, defense:int):
-        super().__init__(ItemTypeEnum.ARMOR, name)
-        self.defense = defense
+    type: ItemTypeEnum = ItemTypeEnum.ARMOR
+    defense: int
 
 class Potion(Item):
-    def __init__(self, name:str, effect: PotionEffectEnum):
-        super().__init__(ItemTypeEnum.POTION, name)
-        self.effect = effect
+    type: ItemTypeEnum = ItemTypeEnum.POTION
+    effect: PotionEffectEnum
 
 class HealthPotion(Potion):
-    def __init__(self, name:str, points:int):
-        super().__init__(name, PotionEffectEnum.HEAL)
-        self.points = points
+    points: int
 
 class DefensePotion(Potion):
-    def __init__(self, name:str, points:int):
-        super().__init__(name, PotionEffectEnum.DEFENSE)
-        self.points = points
+    points: int

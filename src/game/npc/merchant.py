@@ -1,12 +1,13 @@
-from game.items.items import Weapon, Armour, Potion
+from game.items.items import Weapon, Armour, Inventory, HealthPotion, PotionEffectEnum
+from game.npc.npc_memory import NPCMemory, ChatRoleEnum
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from typing import List
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 from typing import Literal
+from game.player.player import Player
 
 load_dotenv()
 
@@ -17,7 +18,7 @@ class NPCResponse(BaseModel):
 
 
 class RouteClassification(BaseModel):
-    destination: Literal["trade", "ask_information", "default"] = Field(
+    destination: Literal["trade", "transaction", "ask_information", "default"] = Field(
         description="Determine the appropriate route for handling the player's input"
     )
     reasoning: str = Field(
@@ -26,27 +27,10 @@ class RouteClassification(BaseModel):
 
 class Merchant:
     def __init__(self):
-        self.money = 1000
-        self.inventory = self._initInventory()
+        self.inventory = self.init_inventory()
         self.llm = ChatOpenAI()
 
-        self.momory = {
-            'player_name': None,
-            'chat_history': [],
-            'items_sold': [],
-            'quest_offered': []
-        }
-
-        self.personality = {
-            "knowledge": ["local_area", 'town_history', 'trade'],
-            "traits": ["friendly", "helpful", "knowledgeable"]
-        }
-
-        self.dialogue_status = {
-            'GREETING': [
-                'Hello, traveler! How can I help you today?',
-            ]
-        }
+        self.memory = NPCMemory()
 
         self.quests = {
             "defeat_dragon": {
@@ -72,91 +56,39 @@ class Merchant:
                 """
         }
     
-    def _initInventory(self):
-        self.inventory = {
-            'sword': Weapon('Sword', 10),
-            'shield': Armour('Shield', 5),
-            'potion': Potion('Health Potion', 10)
-        }
-
-    def process_input(self, player_input, conversation_history):
-        # 1. Set up the prompt template with NPC context and rules
-        prompt = ChatPromptTemplate.from_template("""
-        You are an NPC named {npc_name} with the following traits: {npc_traits}.
-        
-        Your role is: {npc_role}
-        
-        YOU MAY ONLY INTERPRET PLAYER INPUTS AS THE FOLLOWING INTENTS:
-        
-        RULES YOU MUST FOLLOW:
-        {npc_rules}
-        
-        ACTIONS YOU ARE ALLOWED TO PERFORM:
-        {allowed_actions}
-        
-        Previous conversation:
-        {conversation_history}
-        
-        Player says: {player_input}
-        
-        First, classify the player's intent. Then generate a response that:
-        1. Stays in character based on your personality
-        2. Follows all your defined rules
-        3. Only suggests actions from your allowed list if appropriate
-        
-        Respond in the following JSON format:
-        {format_instructions}
-        """)
-
-        # 2. parser
-        parser = PydanticOutputParser(pydantic_object=NPCResponse)
-        
-        # 3. Initialize the LLM
-        llm = ChatOpenAI(model='gpt-3.5-turbo', temperature=0.7)
-        
-        # 4. Create and run the chain
-        chain = prompt | llm | parser
-        
-        # 5. Run the chain with appropriate inputs
-        result = chain.invoke(
-            {
-                "npc_name": self.context['name'],
-                "npc_role": self.context['role'],
-                "npc_traits": self.context['traits'],
-                "npc_rules": self.context['rules'],
-                "allowed_actions": self.context['allowed_actions'],
-                "conversation_history": conversation_history,
-                "player_input": player_input,
-                "format_instructions": parser.get_format_instructions()
-            }
+    def init_inventory(self):
+        return Inventory(
+            items={
+                'sword': Weapon(name='Sword', damage=10),
+                'shield': Armour(name='Shield', defense=5),
+                'potion': HealthPotion(name='Potion', points=10, effect=PotionEffectEnum.HEAL)
+            },
+            gold=1523
         )
-        
-        # # 6. Process actions if needed
-        # if result.actions:
-        #     print(f"Actions to perform: {result.actions}")
-        
-        # # 7. Store in conversation history
-        # conversation_history.append({
-        #     "player": player_input,
-        #     "npc": result.response_text
-        # })
-        
-        return result
-    
-    def create_router_chain(self, player_input):
 
+    def create_router_chain(self):
         router_prompt = ChatPromptTemplate.from_template("""
         Analyze the player's input and determine the most appropriate interaction route:
 
         Possible routes:
-        - trade
-        - ask_information
-        - default
-                                                         
+        - trade: When the player wants to browse items, see what's available, ask about prices, or discuss merchandise but is NOT yet committing to a specific purchase
+        - transaction: When the player is EXPLICITLY trying to buy or sell a SPECIFIC item (e.g., "I'll buy the sword" or "I want to purchase the potion")
+        - ask_information: When the player is asking for information unrelated to merchandise
+        - default: General conversation or greetings
+
+        Examples:
+        - "What do you sell?" → trade
+        - "Do you have any weapons?" → trade
+        - "How much is the potion?" → trade
+        - "I want to see your items" → trade
+        - "I'll take the sword" → transaction
+        - "I want to buy the health potion" → transaction
+        - "I'll sell you this dagger" → transaction
+
         Player says: {player_input}
-                                                         
+
         Provide your classification in the following format:
-        {format_instructions}                   
+        {format_instructions}
         """)
 
         # Output parser for routing
@@ -195,6 +127,41 @@ class Merchant:
                 1. Stays in character based on your personality
                 2. Only offer items that are in your inventory
                 3. Only suggests actions from your allowed list if appropriate
+                
+                Respond in the following JSON format:
+                {format_instructions}
+                """),
+
+            "transaction": ChatPromptTemplate.from_template("""
+                You are an NPC named {npc_name} with the following traits: {npc_traits}.
+                
+                Your role is: {npc_role}
+                                                            
+                You are now handling a transaction interaction with the player.
+                
+                Your inventory:
+                {npc_inventory}
+                
+                Your money: {npc_money} gold
+
+                Player inventory item:
+                {player_inventory}
+                
+                Player money: {player_money} gold
+                
+                Previous conversation:
+                {conversation_history}
+                                                        
+                ACTIONS YOU ARE ALLOWED TO PERFORM:
+                {allowed_actions}
+                
+                Player says: {player_input}
+                
+                First, understand the player's transaction request. Then generate a response that:
+                1. Stays in character based on your personality
+                2. Only completes transactions for items that exist in the relevant inventory
+                3. Only completes transactions if the buyer has sufficient funds
+                4. Includes the appropriate action in the actions list
                 
                 Respond in the following JSON format:
                 {format_instructions}
@@ -258,22 +225,9 @@ class Merchant:
 
         return response_chain
     
-    def create_full_chain(self, player_input, conversation_history):
-        router_chain = self.create_router_chain(player_input)
-        
-        full_chain = (
-            RunnablePassthrough.assign(
-                route=router_chain,
-            ) | RunnableLambda(lambda x: self.route_chain(x['route']).invoke(x))
-        )
-
-        return full_chain
-    
-    def process_full_chain(self, player_input, conversation_history):
-        router_chain = self.create_router_chain(player_input)
-        
+    def process_input(self, player_input: str, player: Player):
+        router_chain = self.create_router_chain()
         router_parser = PydanticOutputParser(pydantic_object=RouteClassification)
-        
         router_result = router_chain.invoke(
             {
                 "player_input": player_input,
@@ -282,22 +236,45 @@ class Merchant:
         )
 
         # get the route chain
+        intent_dest = router_result.destination
         routed_chain = self.route_chain(router_result)
         routed_chain_parser = PydanticOutputParser(pydantic_object=NPCResponse)
-        # run the route chain
-        router_result = routed_chain.invoke(
+
+        # See intent destination
+        print("Intent: ",intent_dest)
+
+        # # See history
+        # print("=========")
+        # print(self.memory.to_context())
+        # print("=========")
+        
+        # run the routed chain
+        routed_result = routed_chain.invoke(
             {
                 "player_input": player_input,
                 "npc_name": self.context['name'],
                 "npc_role": self.context['role'],
                 "npc_traits": self.context['traits'],
-                "npc_inventory": "Knife, Shield, Health Potion",
-                "conversation_history": conversation_history,
+                "npc_inventory": self.inventory.items_to_context(),
+                "player_inventory": player.inventory.items_to_context(),
+                "npc_money": self.inventory.gold,
+                "player_money": player.inventory.gold,
+                "conversation_history": self.memory.to_context(),
                 "allowed_actions": self.context['allowed_actions'],
                 "format_instructions": routed_chain_parser.get_format_instructions()
             }
         )
+        
+        parsed_result = routed_chain_parser.invoke(routed_result)
 
-        return router_result
+        # handle actions
+        if intent_dest == 'transaction' and 'sell_item' in parsed_result.actions:
+            ## TODO: add new chain to handle selling of items
+            print("Handle Sell Item")
+        
+        ## Update memory
+        self.memory.add_chat_history(role=ChatRoleEnum.PLAYER, text=player_input)
+        self.memory.add_chat_history(role=ChatRoleEnum.NPC, text=parsed_result.response_text)
 
+        return parsed_result.response_text
 
