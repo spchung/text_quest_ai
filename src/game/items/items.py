@@ -21,6 +21,7 @@ class PotionEffectEnum(Enum):
 class Item(BaseModel):
     type: ItemTypeEnum
     name: str
+    price: int
 
 class Inventory(BaseModel):
     items: Dict[str, Item] = {}
@@ -28,13 +29,13 @@ class Inventory(BaseModel):
 
     def items_to_context(self):
         res = ''
-        for _, item in self.items.items():
+        for key, item in self.items.items():
             if isinstance(item, Weapon):
-                res += f"Weapon: {item.name} - Damage: {item.damage}\n"
+                res += f"id: {key} Weapon: {item.name} - Damage: {item.damage} Price: {item.price}\n"
             elif isinstance(item, Armour):
-                res += f"Armour: {item.name} - Defense: {item.defense}\n"
+                res += f"id: {key} Armour: {item.name} - Defense: {item.defense} Price: {item.price}\n"
             elif isinstance(item, Potion):
-                res += f"Potion: {item.name} - Effect: {item.effect} Points: {item.points}\n"
+                res += f"id: {key} Potion: {item.name} - Effect: {item.effect} Points: {item.points} Price: {item.price}\n"
             else:
                 res += "unknown item \n"
         return res

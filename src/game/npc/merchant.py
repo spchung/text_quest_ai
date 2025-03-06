@@ -25,6 +25,11 @@ class RouteClassification(BaseModel):
         description="Brief explanation of why this route was chosen"
     )
 
+class IdentifySellingItem(BaseModel):
+    item_id: str = Field(
+        description="The if of the item that is being sold"
+    )
+
 class Merchant:
     def __init__(self):
         self.inventory = self.init_inventory()
@@ -53,22 +58,23 @@ class Merchant:
                 2. buy_item
                 3. offer_quest
                 4. provide_information
+                5. item_unavailable
                 """
         }
     
     def init_inventory(self):
         return Inventory(
             items={
-                'sword': Weapon(name='Sword', damage=10),
-                'shield': Armour(name='Shield', defense=5),
-                'potion': HealthPotion(name='Potion', points=10, effect=PotionEffectEnum.HEAL)
+                'sword': Weapon(name='Sword', damage=10, price=10),
+                'shield': Armour(name='Shield', defense=5, price=25),
+                'potion': HealthPotion(name='Potion', points=10, effect=PotionEffectEnum.HEAL, price=5)
             },
             gold=1523
         )
 
     def create_router_chain(self):
         router_prompt = ChatPromptTemplate.from_template("""
-        Analyze the player's input and determine the most appropriate interaction route:
+        Analyze the player's input and previous context to determine the most appropriate interaction route:
 
         Possible routes:
         - trade: When the player wants to browse items, see what's available, ask about prices, or discuss merchandise but is NOT yet committing to a specific purchase
@@ -84,6 +90,13 @@ class Merchant:
         - "I'll take the sword" → transaction
         - "I want to buy the health potion" → transaction
         - "I'll sell you this dagger" → transaction
+        - "Tell me about this area" → ask_information
+        - "What's the best way to defeat the dragon?" → ask_information
+        - "Hello!" → default
+        - "Good day!" → default
+
+        Previous conversation:
+        {conversation_history}
 
         Player says: {player_input}
 
@@ -99,7 +112,6 @@ class Merchant:
 
         # Routing chain
         router_chain = router_prompt | router_llm | router_parser
-        # router_chain = router_prompt | router_llm
 
         return router_chain
     
@@ -125,8 +137,9 @@ class Merchant:
                 
                 First, understand the player's request. Then generate a response that:
                 1. Stays in character based on your personality
-                2. Only offer items that are in your inventory
-                3. Only suggests actions from your allowed list if appropriate
+                2. Only offer to sell items that are in your inventory
+                3. You are allowed to buy any item from the player
+                4. Only suggests actions from your allowed list if appropriate
                 
                 Respond in the following JSON format:
                 {format_instructions}
@@ -141,13 +154,9 @@ class Merchant:
                 
                 Your inventory:
                 {npc_inventory}
-                
-                Your money: {npc_money} gold
 
                 Player inventory item:
                 {player_inventory}
-                
-                Player money: {player_money} gold
                 
                 Previous conversation:
                 {conversation_history}
@@ -160,8 +169,7 @@ class Merchant:
                 First, understand the player's transaction request. Then generate a response that:
                 1. Stays in character based on your personality
                 2. Only completes transactions for items that exist in the relevant inventory
-                3. Only completes transactions if the buyer has sufficient funds
-                4. Includes the appropriate action in the actions list
+                3. Includes the appropriate action in the actions list
                 
                 Respond in the following JSON format:
                 {format_instructions}
@@ -231,7 +239,8 @@ class Merchant:
         router_result = router_chain.invoke(
             {
                 "player_input": player_input,
-                "format_instructions": router_parser.get_format_instructions()
+                "format_instructions": router_parser.get_format_instructions(),
+                "conversation_history": self.memory.to_context(),
             }
         )
 
@@ -268,13 +277,154 @@ class Merchant:
         parsed_result = routed_chain_parser.invoke(routed_result)
 
         # handle actions
-        if intent_dest == 'transaction' and 'sell_item' in parsed_result.actions:
-            ## TODO: add new chain to handle selling of items
-            print("Handle Sell Item")
-        
+        if intent_dest == 'transaction':
+            print(parsed_result.actions)
+            if 'sell_item' in parsed_result.actions:
+                ## TODO: add new chain to handle selling of items
+                print("Handle Sell Item")
+                
+                sell_attempt_response =self.handle_sell_item(player_input, player)
+
+                self.memory.add_chat_history(role=ChatRoleEnum.PLAYER, text=player_input)
+                self.memory.add_chat_history(role=ChatRoleEnum.NPC, text=sell_attempt_response)
+                
+                return sell_attempt_response
+            elif 'buy_item' in parsed_result.actions:
+                ## TODO: add new chain to handle buying of items
+                print("Handle Buy Item")
+
+
+    
         ## Update memory
         self.memory.add_chat_history(role=ChatRoleEnum.PLAYER, text=player_input)
         self.memory.add_chat_history(role=ChatRoleEnum.NPC, text=parsed_result.response_text)
 
         return parsed_result.response_text
 
+    def handle_sell_item(self, player_input: str, player: Player):
+        # extract item for sale
+        prompt = ChatPromptTemplate.from_template("""
+        Analyze the player's input and extract the item they are referring to:
+                                                  
+        Inventory items:
+        {npc_inventory}
+        
+        Player says: {player_input}
+                                                  
+        Provide your selection in the following format:
+        {format_instructions}
+        """)
+
+        parser = PydanticOutputParser(pydantic_object=IdentifySellingItem)
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        chain = prompt | llm | parser
+
+        result = chain.invoke(
+            {
+                "player_input": player_input,
+                "npc_inventory": self.inventory.items_to_context(),
+                "format_instructions": parser.get_format_instructions()
+            }
+        )
+
+        # get item id
+        item_id = result.item_id
+
+        # find item
+        item = self.inventory.items.get(item_id, None)
+        if not item:
+            prompt = ChatPromptTemplate.from_template("""
+            You are an NPC named {npc_name} with the following traits: {npc_traits}.
+                                                      
+            The player mentioned an item that is not in your inventory.
+            
+            Please ask the player to specify an item in your inventory.
+                                                    
+            Inventory items:
+            {npc_inventory}
+            
+            Player says: {player_input}
+                                                      
+            Provide a response reiterating your available items.
+            """)
+
+            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+
+            chain = prompt | llm
+
+            response = chain.invoke(
+                {
+                    "npc_name": self.context['name'],
+                    "npc_traits": self.context['traits'],
+                    "player_input": player_input,
+                    "npc_inventory": self.inventory.items_to_context()
+                }
+            )
+            return response.content
+        
+        else:
+            # 1. get item
+            item = self.inventory.items[item_id]
+
+            # 2. check if player has enough gold
+            if player.inventory.gold < item.price:
+                prompt = ChatPromptTemplate.from_template("""
+                    You are an NPC named {npc_name} with the following traits: {npc_traits}.
+                                                          
+                    Player does not have enough gold to purchase the item.
+
+                    Player gold: {player_gold}
+                    Item price: {item_price}
+
+                    Explain to the player that they do not have enough gold to purchase the item.  
+                    """)
+                
+                llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+
+                chain = prompt | llm
+
+                response = chain.invoke(
+                    {
+                        "npc_name": self.context['name'],
+                        "npc_traits": self.context['traits'],
+                        "player_gold": player.inventory.gold,
+                        "item_price": item.price
+                    }
+                )
+
+                return response.content
+            
+            # 3. deduct gold from player
+            player.inventory.gold -= item.price
+
+            # 4. add item to player inventory
+            player.inventory.items[item_id] = item
+
+            # 5. remove item from npc inventory
+            del self.inventory.items[item_id]
+
+            # 6. return success message
+            prompt = ChatPromptTemplate.from_template("""
+                You are an NPC named {npc_name} with the following traits: {npc_traits}.
+                                                        
+                Player has successfully purchased the item.
+                
+                Item name: {item_name}
+
+                Ask the player if they need anything else.
+                """)
+
+            llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+
+            chain = prompt | llm
+
+            response = chain.invoke(
+                {
+                    "npc_name": self.context['name'],
+                    "npc_traits": self.context['traits'],
+                    "item_name": item.name
+                }
+            )
+
+            return response.content
