@@ -42,10 +42,6 @@ system_prompt_generator = SystemPromptGenerator(
     ],
 )
 
-# Set up your OpenAI API key
-import os
-os.environ["OPENAI_API_KEY"] = "your-api-key-here"  # Replace with your actual API key
-
 # Initialize the agent
 answer_agent = BaseAgent(
     BaseAgentConfig(

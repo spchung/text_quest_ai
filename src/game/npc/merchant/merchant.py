@@ -254,7 +254,6 @@ class Merchant:
 
         return response.content
 
-
     def handle_sell_item(self, player_input: str, player: Player):
         # extract item for sale
         prompt = merchant_prompts.get('extract_sell_item')
