@@ -7,7 +7,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 from langchain_openai import ChatOpenAI
 from typing import Literal
-from game.player.player import Player
+from game.player.simple.player import Player
 from .prompts import NPC_PROMPTS
 
 load_dotenv()

@@ -21,8 +21,3 @@ class Player:
     
     def add_item(self, item: Item):
         self.inventory.items[item.name] = item
-    
-
-
-    
-

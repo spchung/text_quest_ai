@@ -6,7 +6,7 @@ from game.npc.merchant.react.models import *
 
 class MerchantStateMachine:
 
-    init_state = 'untrusting'
+    init_state = 'trusting'
     
     states_map = {
         "untrusting": State(
@@ -79,8 +79,8 @@ class MerchantStateMachine:
                     FewShotIntent(
                         name="player_shared_personal_info",
                         examples=[
-                            "My name is Jeffrey the Mage.",
-                            "I am a traveller from the far west. They call me Magnus."
+                            "My name is ___.",
+                            "I am a traveller from the far west. They call me ___"
                         ],
                     )
                 ]
@@ -122,7 +122,7 @@ class MerchantStateMachine:
                         examples=[
                             "I will hurt you if you don't comply",
                             "Don't you dare thinking about lying to me.",
-                            "You do not wwant me as your enemy."
+                            "You do not want me as your enemy."
                         ],
                     )
                 ]
@@ -136,7 +136,7 @@ class MerchantStateMachine:
                         examples=[
                             "I will hurt you if you don't comply",
                             "Don't you dare thinking about lying to me.",
-                            "You do not wwant me as your enemy."
+                            "You do not want me as your enemy."
                         ],
                     )
                 ]
@@ -163,6 +163,15 @@ class MerchantStateMachine:
                     source=transition.source.name,
                     dest=transition.destination.name
                 )
+        
+        self.all_transition_conditions = self._get_all_conditions()
+    
+    def _get_all_conditions(self):
+        all_conditions = set()
+        for transitions in self.state_config.transitions:
+            all_conditions.update(transitions.conditions)
+        return all_conditions
+
     
     def transition(self, incoming_condition_name) -> None:
         try:
