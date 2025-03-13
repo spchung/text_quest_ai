@@ -1,10 +1,14 @@
 from typing import List
 from game.player.player import Player
-from game.npc.merchant.react.models import ObservationResult, ChatHistory, KnowledgeBase, Inventory, NameDescriptionModel, Quest, Item
+from game.npc.merchant.react.models import ChatHistory, KnowledgeBase, Inventory, \
+    NameDescriptionModel, Quest, Item, StateProtectedResource, \
+    ResonResult, ObservationResult, PlanResult
 from game.npc.merchant.react.react_merchant_statemachine import MerchantStateMachine, MachineError
 from game.npc.merchant.react.agents.transition_detection import transition_detection_agent, TransitionDetectionInputSchema
 from game.npc.merchant.react.agents.action_detection import action_detection_agent, ActionDetectionInputSchema
-from game.npc.merchant.react.agents.knowledge_base_worker import knowledge_base_worker_agent, KnowledgeBaseWorkerInputSchema
+from game.npc.merchant.react.agents.knowledge_base_worker import knowledge_base_worker_agent, KnowledgeBaseWorkerInputSchema, KnowledgeBaseWorkerOutputSchema
+
+
 class ReActMerchant:
     def __init__(self):
         self.conversation_history = []
@@ -27,19 +31,36 @@ class ReActMerchant:
 
     def __init_knowledge_base(self):
         # Load knowledge base from file or database
-        
         return KnowledgeBase(
-            quests=[
-                Quest(name="Defeat Evil Dragon", description="Defeat the ancient evil dragon that slumbers beneath the mountain.", reward=1000),
-            ],
-            secrets=[
-                NameDescriptionModel(name="Secret Passage", description="There is a secret passage behind the waterfall that leads to the dragon's lair."),
-                NameDescriptionModel(name="Dragon Weakness", description="The dragon is vulnerable to ice magic.")
-            ],
-            generic_info=[
-                NameDescriptionModel(name="Town History", description="The town was founded by the legendary hero Sir Percival. It was first settled over 500 years ago."),
-                NameDescriptionModel(name="Local Tavern", description="The tavern is a popular spot for adventurers to gather and share stories."),
-            ]
+            quests = StateProtectedResource[List[Quest]](
+                allowed_states=[
+                    self.state_machine.state_enum.HELPFUL.value, 
+                    self.state_machine.state_enum.TRUSTING.value
+                ],
+                data=[
+                    Quest(name="Defeat Evil Dragon", description="Defeat the ancient evil dragon that slumbers beneath the mountain.", reward=1000),
+                ],
+            ),
+            secrets = StateProtectedResource[List[NameDescriptionModel]](
+                allowed_states=[
+                    self.state_machine.state_enum.TRUSTING.value
+                ],
+                data=[
+                    NameDescriptionModel(name="Secret Passage", description="There is a secret passage behind the waterfall that leads to the dragon's lair."),
+                    NameDescriptionModel(name="Dragon Weakness", description="The dragon is vulnerable to ice magic.")
+                ],
+            ),
+            generic_info = StateProtectedResource[List[NameDescriptionModel]](
+                allowed_states=[
+                    self.state_machine.state_enum.HELPFUL.value, 
+                    self.state_machine.state_enum.TRUSTING.value,
+                    self.state_machine.state_enum.UNTRUSTING.value,
+                ],
+                data=[
+                    NameDescriptionModel(name="Town History", description="The town was founded by the legendary hero Sir Percival. It was first settled over 500 years ago."),
+                    NameDescriptionModel(name="Local Tavern", description="The tavern is a popular spot for adventurers to gather and share stories."),
+                ]
+            )
         )
     
     def process_input(self, player_msg, player):
@@ -51,16 +72,21 @@ class ReActMerchant:
         ## possible state transitions
         ## possible actions to take
         observ_res = self.__observe(player_msg)
+        print(f"[LOG] - observation: {observ_res}")
 
         # reason
         ## consider context 
         ### previous conversation
         ## consider actions
+        reason_res = self.__reason(observ_res, player)
+        print(f"[LOG] - Reason: {reason_res}")
 
         # plan
         ## decide on actions to take
         ## decide on state transitions
         ## consider next response possibilities
+        plan_res = self.__plan(player_msg, observ_res, reason_res)
+        print(f"[LOG] - Plan: {plan_res}")
 
         # act
         ## if actions - call tools
@@ -70,9 +96,8 @@ class ReActMerchant:
         ## consider action results
         ## consider context
         ## formulate response
-        pass
 
-    def _observe(self, msg) -> ObservationResult:
+    def __observe(self, msg, confidence_threshold=0.7) -> ObservationResult:
         """Extract relevant information from player message and game state"""
         # - Possible State transitions
         # - Possible actions to take
@@ -84,9 +109,8 @@ class ReActMerchant:
                 available_transition_conditions=self.state_machine.all_transition_conditions
             )
         )
-        print(f"[LOG] - condition: {transition_resp}")
-
         ## sentiment analysis (TODO)
+        print("[WARN] - Sentiment analysis not implemented yet")
 
         ## actions (maybe move to plan?)
         action_resp = action_detection_agent.run(
@@ -95,16 +119,15 @@ class ReActMerchant:
                 current_state=self.state_machine.states_map[self.state_machine.state],
             )
         )
-        print(f"[LOG] action: {action_resp}")
 
         condition = None if (
             transition_resp.detected_condition == 'none' or 
-            transition_resp.confidence_score < 0.7
+            transition_resp.confidence_score < confidence_threshold
         ) else transition_resp.detected_condition
         
         action = None if (
             action_resp.detected_action == 'none' or 
-            action_resp.confidence_score < 0.7
+            action_resp.confidence_score < confidence_threshold
         ) else action_resp.detected_action
 
         return ObservationResult(
@@ -114,27 +137,35 @@ class ReActMerchant:
         )
 
     def __reason(self, observe_res: ObservationResult, player: Player):
-        
+        '''All context and reasoning'''
         ## condiser state attributes
         current_state = self.state_machine.states_map[self.state_machine.state]
         
         ### emption/attitude
-        npc_trait = current_state.trait
+        npc_traits = current_state.trait
 
         ## consider chat history
-        last_k_turns = self.chat_history.get_last_k_turns(3)
+        prev_convo = self.chat_history.get_last_k_turns(3)
 
         ## consider knowledge base
         relevant_knowledge = self.__collect_relevant_knowledge(observe_res)
 
-    def _collect_relevant_knowledge(self, observe_res: ObservationResult) -> List[str]:
+        return ResonResult(
+            information=relevant_knowledge.information if relevant_knowledge else None,
+            reasoning=relevant_knowledge.reasoning if relevant_knowledge else None,
+            previous_conversaation=prev_convo,
+            npc_trais=npc_traits
+        )
+
+    def __collect_relevant_knowledge(self, observe_res: ObservationResult) -> KnowledgeBaseWorkerOutputSchema:
+        """Collect relevant knowledge from the knowledge base"""
         if not observe_res.action or observe_res.action =='none':
-            return []
+            return None
         
         # check if is allowed action in current state
         current_state = self.state_machine.states_map[self.state_machine.state]
         if observe_res.action not in [action.name for action in current_state.available_actions]:
-            return []
+            return None
         
         # find condition
         condition = None
@@ -144,196 +175,53 @@ class ReActMerchant:
                 condition = cond
                 break
         
+        ## get the protected knowledge on this state
+        protected_knowledge = self.knowledge_base.get_protected_knowledge(current_state)
+        
         ## Call knowledge base worker agent to get relevant knowledge
         knowledge_resp = knowledge_base_worker_agent.run(
             KnowledgeBaseWorkerInputSchema(
                 current_state=current_state,
                 detected_condition=condition,
                 detected_action=observe_res.action,
-                npc_knowledge_base=self.knowledge_base,
+                npc_knowledge_base=protected_knowledge,
                 npc_inventory=self.inventory
             )
         )
 
         return knowledge_resp
         
+    def __plan(
+            self, 
+            player_msg: str, 
+            observation_res: ObservationResult, 
+            reason_res: ResonResult, 
+        ):
+        """Decide on actions to take based on observation and reasoning"""
+        # combine observation and reasoning to decide on actions
 
+        # transitions
+        state_transition_name = None
+        if observation_res.condition:
+            state_transition_name = observation_res.condition
         
+        # action
+        action_name = None
+        if observation_res.action:
+            action_name = observation_res.action
 
-        
+        print("[WARN] - PLAN llm logic not implemented yet")
 
+        # return result
+        return PlanResult(
+            player_message=player_msg,
+            action=self.state_machine.action_lookup(action_name),
+            transition_condition=self.state_machine.transition_lookup(state_transition_name),
+            reasoning=reason_res.reasoning,
+            previous_conversaation=reason_res.previous_conversaation,
+            npc_trais=reason_res.npc_trais
+        )
     
-    def process_player_input(self, player_message, game_state):
-        # OBSERVE
-        observation = self._observe(player_message, game_state)
-        
-        # Detect state transition triggers
-        triggers_detected = self._detect_state_triggers(observation)
-        
-        # Apply any detected triggers to state machine
-        self._apply_triggers(triggers_detected)
-        
-        # test state transition
-        response = f"The current state is: {self.state_machine.state}"
-        
-        # REASON (incorporating current state)
-        # current_state = self.state_machine.state
-        # state_traits = MerchantStateMachine.state_detail[current_state]['trait']
-        # available_actions = MerchantStateMachine.state_detail[current_state]['available_actions']
-        
-        # reasoning = self._reason(observation, current_state, state_traits)
-        
-        # # PLAN (constrained by available actions)
-        # response_plan = self._plan(reasoning, available_actions)
-        
-        # # ACT
-        # response = self._act(response_plan)
-        
-        # # Update conversation history
-        # self.conversation_history.append({
-        #     "player": player_message,
-        #     "npc": response,
-        #     "state": current_state
-        # })
-        
-        return response
-    
-    def __observe(self, player_message, game_state):
-        """Extract relevant information from player message and game state"""
-        # Use NLP/intent recognition to identify:
-        # - Player's intent (question, demand, offer, etc.)
-        # - Entities mentioned (items, locations, people)
-        # - Emotional tone (friendly, hostile, neutral)
-        # - References to previous conversations
-        return {
-            "intent": self._detect_intent(player_message),
-            "entities": self._extract_entities(player_message),
-            "tone": self._analyze_tone(player_message),
-            "game_context": game_state
-        }
-    
-    def _detect_state_triggers(self, observation):
-        """Identify if any state transition triggers are present"""
-        triggers = []
-        
-        # Check for specific trigger conditions based on observation
-        if "personal_info" in observation["entities"]:
-            triggers.append("player_shared_personal_info")
-            
-        if "bribe" in observation["entities"] or "gold" in observation["entities"] and observation["intent"] == "offer":
-            triggers.append("player_offer_bribe")
-            
-        if observation["tone"] == "threatening":
-            triggers.append("player_threaten_npc")
-            
-        # Add more trigger detection logic as needed
-            
-        return triggers
-    
-    def _apply_triggers(self, triggers):
-        """Apply detected triggers to the state machine"""
-        for trigger in triggers:
-            try:
-                # Call the trigger method dynamically on the state machine
-                trigger_method = getattr(self.state_machine, trigger)
-                trigger_method()
-            except (AttributeError, MachineError):
-                # Trigger not applicable in current state
-                pass
-    
-    def _reason(self, observation, current_state, state_traits):
-        """Process information and determine meaning based on current state"""
-        # Consider the NPC's current state traits when determining how to respond
-        # Different reasoning strategies based on state
-        reasoning = {
-            "response_type": None,
-            "relevant_knowledge": [],
-            "emotional_response": None
-        }
-        
-        if current_state == "untrusting":
-            # More cautious reasoning, focused on self-protection
-            reasoning["emotional_response"] = "cautious"
-            if observation["intent"] == "question":
-                reasoning["response_type"] = "deflect" if self._is_sensitive_topic(observation) else "basic_info"
-                
-        elif current_state == "trusting":
-            # Business-oriented reasoning
-            reasoning["emotional_response"] = "neutral"
-            if observation["intent"] == "trade_request":
-                reasoning["response_type"] = "trade"
-                reasoning["relevant_knowledge"] = self._get_trade_knowledge()
-                
-        elif current_state == "helpful":
-            # More generous reasoning, looking to assist
-            reasoning["emotional_response"] = "friendly"
-            if observation["intent"] == "question":
-                reasoning["response_type"] = "share_secret" if self._knows_secret_about(observation) else "basic_info"
-                reasoning["relevant_knowledge"] = self._get_relevant_secrets(observation)
-        
-        return reasoning
-    
-    def _plan(self, reasoning, available_actions):
-        """Generate response plan based on reasoning and available actions"""
-        # Ensure the response type from reasoning is allowed in current state
-        if reasoning["response_type"] not in available_actions:
-            # Fall back to an available action
-            if "basic_info" in available_actions:
-                response_type = "basic_info"
-            else:
-                response_type = available_actions[0]
-        else:
-            response_type = reasoning["response_type"]
-        
-        # Plan the specific response
-        response_content = self._generate_response_content(response_type, reasoning)
-        
-        return {
-            "response_type": response_type,
-            "content": response_content,
-            "emotional_tone": reasoning["emotional_response"]
-        }
-    
-    def _act(self, plan):
-        """Execute the response plan"""
-        # Generate final dialogue text based on the plan
-        dialogue = self._format_dialogue(plan["content"], plan["emotional_tone"])
-        
-        # Any game actions that should accompany the dialogue
-        actions = self._determine_accompanying_actions(plan)
-        
-        return {
-            "dialogue": dialogue,
-            "actions": actions
-        }
-    
-    # Helper methods would be implemented here
-    def _detect_intent(self, message):
-        pass
-    
-    def _extract_entities(self, message):
-        pass
-    
-    def _analyze_tone(self, message):
-        pass
-    
-    def _is_sensitive_topic(self, observation):
-        pass
-    
-    def _get_trade_knowledge(self):
-        pass
-    
-    def _knows_secret_about(self, observation):
-        pass
-    
-    def _get_relevant_secrets(self, observation):
-        pass
-    
-    def _generate_response_content(self, response_type, reasoning):
-        pass
-    
-    def _format_dialogue(self, content, tone):
-        pass
-    
-    def _determine_accompanying_actions(self, plan):
+
+    def __action(self, action_name: str):
         pass

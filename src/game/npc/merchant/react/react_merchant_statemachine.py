@@ -1,16 +1,20 @@
 from transitions import Machine, MachineError
 from collections import defaultdict
 from typing import List
-
+from enum import Enum
 from game.npc.merchant.react.models import *
-
+class MerchantStateEnum(Enum):
+    UNTRUSTING = 'untrusting'
+    TRUSTING = 'trusting'
+    HELPFUL = 'helpful'
 class MerchantStateMachine:
+    state_enum = MerchantStateEnum
 
-    init_state = 'trusting'
+    init_state = state_enum.UNTRUSTING.value
     
     states_map = {
-        "untrusting": State(
-            name="untrusting",
+        state_enum.UNTRUSTING.value: State(
+            name=state_enum.UNTRUSTING.value,
             trait="Distant and cold. Greeting the player with limited enthusiasm.",
             available_actions=[
                 Action(
@@ -27,8 +31,8 @@ class MerchantStateMachine:
                 ),
             ]
         ),
-        "trusting": State(
-            name="trusting",
+        state_enum.TRUSTING.value: State(
+            name=state_enum.TRUSTING.value,
             trait="Courteous but calculating. Primary objective is to trade items with profit.",
             available_actions=[
                 Action(
@@ -49,8 +53,8 @@ class MerchantStateMachine:
                 ),
             ]
         ),
-        "helpful": State(
-            name="helpful",
+        state_enum.HELPFUL.value: State(
+            name=state_enum.HELPFUL.value,
             trait="Friendly and enthusiastic to help. Tries to offer player quest and secrets that might help the player.",
             available_actions=[
                 Action(
@@ -73,8 +77,8 @@ class MerchantStateMachine:
         states = list(states_map.values()),
         transitions=[
             StateTransition(
-                source=states_map['untrusting'],
-                destination=states_map['trusting'],
+                source=states_map[state_enum.UNTRUSTING.value],
+                destination=states_map[state_enum.TRUSTING.value],
                 conditions=[
                     FewShotIntent(
                         name="player_shared_personal_info",
@@ -86,8 +90,8 @@ class MerchantStateMachine:
                 ]
             ),
             StateTransition(
-                source=states_map['untrusting'],
-                destination=states_map['helpful'],
+                source=states_map[state_enum.UNTRUSTING.value],
+                destination=states_map[state_enum.HELPFUL.value],
                 conditions=[
                     FewShotIntent(
                         name="player_offer_bribe",
@@ -100,8 +104,8 @@ class MerchantStateMachine:
                 ]
             ),
             StateTransition(
-                source=states_map['trusting'],
-                destination=states_map['helpful'],
+                source=states_map[state_enum.TRUSTING.value],
+                destination=states_map[state_enum.HELPFUL.value],
                 conditions=[
                     FewShotIntent(
                         name="player_offer_bribe",
@@ -114,8 +118,8 @@ class MerchantStateMachine:
                 ]
             ),
             StateTransition(
-                source=states_map['trusting'],
-                destination=states_map['untrusting'],
+                source=states_map[state_enum.TRUSTING.value],
+                destination=states_map[state_enum.UNTRUSTING.value],
                 conditions=[
                     FewShotIntent(
                         name="player_threaten_npc",
@@ -128,8 +132,8 @@ class MerchantStateMachine:
                 ]
             ),
             StateTransition(
-                source=states_map['helpful'],
-                destination=states_map['untrusting'],
+                source=states_map[state_enum.HELPFUL.value],
+                destination=states_map[state_enum.UNTRUSTING.value],
                 conditions=[
                     FewShotIntent(
                         name="player_threaten_npc",
@@ -165,14 +169,30 @@ class MerchantStateMachine:
                 )
         
         self.all_transition_conditions = self._get_all_conditions()
+        self.transition_map = {condition.name: condition for condition in self.all_transition_conditions}
+        print(f"Transition map: {self.transition_map}")
+        self.action_map = self._get_action_map()
     
     def _get_all_conditions(self):
         all_conditions = set()
         for transitions in self.state_config.transitions:
             all_conditions.update(transitions.conditions)
-        return all_conditions
+        return list(all_conditions)
 
-    
+    def _get_action_map(self):
+        action_map = {}
+        for state in self.state_config.states:
+            for action in state.available_actions:
+                if not action.name in action_map:
+                    action_map[action.name] = action
+        return action_map
+
+    def action_lookup(self, action_name):
+        return self.action_map.get(action_name, None)
+
+    def transition_lookup(self, transition_name):
+        return self.transition_map.get(transition_name, None)
+
     def transition(self, incoming_condition_name) -> None:
         try:
             getattr(self, incoming_condition_name)()

@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import List, Literal
 import time
+from pydantic import BaseModel, Field, ConfigDict
+from typing import List, Literal, TypeVar, Generic
+
+T = TypeVar('T')
 
 ## Generics
 class NameDescriptionModel(BaseModel):
@@ -8,6 +10,10 @@ class NameDescriptionModel(BaseModel):
     description: str
 
 ## State Machine
+class StateProtectedResource(BaseModel, Generic[T]):
+    allowed_states : List[str] = Field(..., description="List of states that can access this resource.")
+    data: T = Field(..., description="Data that is protected by states.")
+
 class Action(BaseModel):
     name: str
     description: str
@@ -46,24 +52,17 @@ class NpcConfig(BaseModel):
     states: List[State]
     transitions: List[StateTransition]
 
-## ReAct Logic
-class ObservationResult(BaseModel):
-    condition: str | None = Field(..., description="Detected transition condition.")
-    action: str | None = Field(..., description="Detected action.")
-    sentiment: str | None = Field(..., description="Detected sentiment.")
-
-
-## Chat history
+## CHAT HISTORY
 class Message(BaseModel):
     timestamp: float = Field(default=time.time())
     role: str = Field(..., description="Who this message belongs to (NPC or player).")
     message: str = Field(..., description="Chat message")
 
-    def __repr__(self):
+    def __str__(self):
         return f"{self.role}: {self.message}"
 
 class ChatHistory:
-    messages: List[Message] = Field(..., description="list of messages")
+    messages: List[Message] = []
 
     def add_player(self, message):
         self.messages.append(Message(role='player', message=message))
@@ -96,6 +95,40 @@ class Quest(BaseModel):
     reward: int = Field(..., description='Reward for completing the quest (in gold coins).')
 
 class KnowledgeBase(BaseModel):
+    quests: StateProtectedResource[List[Quest]] = Field(..., description="List of quests that npc knows of.")
+    secrets: StateProtectedResource[List[NameDescriptionModel]] = Field(..., description="List of secrets that will help the player during quests tha the npc knows of.")
+    generic_info: StateProtectedResource[List[NameDescriptionModel]] = Field(..., description="Basic information the npc knows about the environments.")
+
+    def get_protected_knowledge(self, state: State):
+        """Return a protected knowledge base for the given state"""
+        quests = [q for q in self.quests.data if state.name in self.quests.allowed_states]
+        secrets = [s for s in self.secrets.data if state.name in self.secrets.allowed_states]
+        generic_info = [g for g in self.generic_info.data if state.name in self.generic_info.allowed_states]
+
+        return ProtectedKnowledgeBase(quests=quests, secrets=secrets, generic_info=generic_info)
+
+class ProtectedKnowledgeBase(BaseModel):
     quests: List[Quest] = Field(..., description="List of quests that npc knows of.")
     secrets: List[NameDescriptionModel] = Field(..., description="List of secrets that will help the player during quests tha the npc knows of.")
     generic_info: List[NameDescriptionModel] = Field(..., description="Basic information the npc knows about the environments.")
+
+
+## ReAct Logic
+class ObservationResult(BaseModel):
+    condition: str | None = Field(..., description="Detected transition condition.")
+    action: str | None = Field(..., description="Detected action.")
+    sentiment: str | None = Field(..., description="Detected sentiment.")
+
+class ResonResult(BaseModel):
+    information: List[str] | None = Field(..., description="List of relevant information to share with the player")
+    reasoning: str | None = Field(..., description="Reasoning behind the provided information")
+    previous_conversaation: str = Field(..., description="chat history between user and npc")
+    npc_trais: str = Field(..., description="NPC traits - how the npc should act in this state")
+
+class PlanResult(BaseModel):
+    player_message: str = Field(..., description="Player inpuyt")
+    action: Action | None = Field(..., description="Action to take.")
+    transition_condition: FewShotIntent | None = Field(..., description="Transition condition to check.")
+    reasoning: str | None = Field(..., description="Reasoning behind the action.")
+    previous_conversaation: str = Field(..., description="chat history between user and npc")
+    npc_trais: str = Field(..., description="NPC traits - how the npc should act in this state") 
