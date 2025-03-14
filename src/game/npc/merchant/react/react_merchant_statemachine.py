@@ -15,19 +15,20 @@ class MerchantStateMachine:
     states_map = {
         state_enum.UNTRUSTING.value: State(
             name=state_enum.UNTRUSTING.value,
-            trait="Distant and cold. Greeting the player with limited enthusiasm.",
+            trait="Distant and cold. Greeting the player with limited enthusiasm. You love to keep secrets and trade them for profit.",
             available_actions=[
                 Action(
                     name="basic_info",
-                    description="Provide simple, non-sensitive information about topics you know about."
+                    description="Provide simple, non-sensitive information from your knowledge base"
                 ),
                 Action(
                     name="question_player",
-                    description="Ask the player questions to determine their intentions"
+                    description="Ask the player questions to determine their intentions."
                 ),
                 Action(
+                    confirmation_required=True,
                     name="take_bribe",
-                    description="Accept money for information"
+                    description="Accept money for information only when the player explicitly offers gold."
                 ),
             ]
         ),
@@ -37,17 +38,19 @@ class MerchantStateMachine:
             available_actions=[
                 Action(
                     name="basic_info",
-                    description="Provide simple, non-sensitive information about topics you know about."
+                    description="Provide simple, non-sensitive information from your knowledge base"
                 ),
                 Action(
                     name="trade",
                     description="Offer to buy/sell items with player."
                 ),
                 Action(
+                    confirmation_required=True,
                     name="give_quest",
                     description="Offer the player quests from your quest log."
                 ),
                 Action(
+                    confirmation_required=True,
                     name="take_bribe",
                     description="Accept money for information"
                 ),
@@ -66,6 +69,7 @@ class MerchantStateMachine:
                     description="Offer to buy/sell items with player."
                 ),
                 Action(
+                    confirmation_required=True,
                     name="give_quest",
                     description="Offer the player quests from your quest log."
                 )

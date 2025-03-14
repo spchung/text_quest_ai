@@ -7,6 +7,7 @@ from game.npc.merchant.react.react_merchant_statemachine import MerchantStateMac
 from game.npc.merchant.react.agents.transition_detection import transition_detection_agent, TransitionDetectionInputSchema
 from game.npc.merchant.react.agents.action_detection import action_detection_agent, ActionDetectionInputSchema
 from game.npc.merchant.react.agents.knowledge_base_worker import knowledge_base_worker_agent, KnowledgeBaseWorkerInputSchema, KnowledgeBaseWorkerOutputSchema
+from game.npc.merchant.react.agents.reflection_reason import reflection_reason_agent, ReflectionReasonInputSchema, ReflectionReasonOutputSchema
 
 
 class ReActMerchant:
@@ -91,6 +92,7 @@ class ReActMerchant:
         # act
         ## if actions - call tools
         ## if state transition - iterate state
+        res = self.__action(plan_res)
 
         # response
         ## consider action results
@@ -144,8 +146,8 @@ class ReActMerchant:
         ### emption/attitude
         npc_traits = current_state.trait
 
-        ## consider chat history
-        prev_convo = self.chat_history.get_last_k_turns(3)
+        # ## consider chat history
+        # prev_convo = self.chat_history.get_last_k_turns()
 
         ## consider knowledge base
         relevant_knowledge = self.__collect_relevant_knowledge(observe_res)
@@ -153,8 +155,6 @@ class ReActMerchant:
         return ResonResult(
             information=relevant_knowledge.information if relevant_knowledge else None,
             reasoning=relevant_knowledge.reasoning if relevant_knowledge else None,
-            previous_conversaation=prev_convo,
-            npc_trais=npc_traits
         )
 
     def __collect_relevant_knowledge(self, observe_res: ObservationResult) -> KnowledgeBaseWorkerOutputSchema:
@@ -198,7 +198,6 @@ class ReActMerchant:
             reason_res: ResonResult, 
         ):
         """Decide on actions to take based on observation and reasoning"""
-        # combine observation and reasoning to decide on actions
 
         # transitions
         state_transition_name = None
@@ -211,17 +210,56 @@ class ReActMerchant:
             action_name = observation_res.action
 
         print("[WARN] - PLAN llm logic not implemented yet")
+        
+        reflection_res = reflection_reason_agent.run(
+            ReflectionReasonInputSchema(
+                player_input=player_msg,
+                current_state=self.state_machine.states_map[self.state_machine.state],
+                detected_transition_condition=self.state_machine.transition_lookup(state_transition_name),
+                detected_action=self.state_machine.action_lookup(action_name),
+                previous_step_reasoning=reason_res.reasoning,
+                npc_knowledge_base=self.knowledge_base.get_protected_knowledge(self.state_machine.states_map[self.state_machine.state]),
+                previous_conversation=self.chat_history.get_last_k_turns()
+            )
+        )
+
+        ## cancel action and transition if not approved
+        if not reflection_res.transition_condition_approval.approved:
+            state_transition_name = None
+        
+        if not reflection_res.action_approval.approved:
+            action_name = None
 
         # return result
         return PlanResult(
             player_message=player_msg,
             action=self.state_machine.action_lookup(action_name),
             transition_condition=self.state_machine.transition_lookup(state_transition_name),
-            reasoning=reason_res.reasoning,
-            previous_conversaation=reason_res.previous_conversaation,
-            npc_trais=reason_res.npc_trais
+            reasoning=reflection_res.reasoning,
         )
     
 
-    def __action(self, action_name: str):
+    def __action(self, plan_res: PlanResult):
+        """Perform actions and collect results"""
+        action = plan_res.action
+        if action.confirmation_required:
+            is_confirmed = self.__handle_action_confirmation(action)
+            if not is_confirmed:
+                print("[LOG] - Action rejected.")
+            else: 
+                print("[LOG] - Action confirmed.")
         pass
+
+
+    def __handle_action_confirmation(self, action):
+        """ ask for user confirmation """
+        if action.name == 'take_bribe':
+            price = 5
+            res = input(f"[CONFIRM]: The NPC is requesting {price} gold for action {action.name}. Do you accept? (y/n) ")
+
+            if res.lower() == 'yes' or res.lower() == 'y':
+                return True
+        
+        return False
+
+

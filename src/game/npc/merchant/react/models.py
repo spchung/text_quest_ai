@@ -9,6 +9,10 @@ class NameDescriptionModel(BaseModel):
     name: str
     description: str
 
+class ApprovalWrapper(BaseModel, Generic[T]):
+    data: T
+    approved: bool = False
+
 ## State Machine
 class StateProtectedResource(BaseModel, Generic[T]):
     allowed_states : List[str] = Field(..., description="List of states that can access this resource.")
@@ -17,6 +21,7 @@ class StateProtectedResource(BaseModel, Generic[T]):
 class Action(BaseModel):
     name: str
     description: str
+    confirmation_required: bool = Field(default=False, description="Whether this action require explicit confirmation")
 
 class FewShotIntent(BaseModel):
     name: str
@@ -73,7 +78,7 @@ class ChatHistory:
     def messages_to_string(self, messages:List[Message]):
         return "\n".join([str(m) for m in messages])
 
-    def get_last_k_turns(self, k):
+    def get_last_k_turns(self, k=3):
         if k*2 > len(self.messages):
             return self.messages_to_string(self.messages)
         
@@ -122,13 +127,13 @@ class ObservationResult(BaseModel):
 class ResonResult(BaseModel):
     information: List[str] | None = Field(..., description="List of relevant information to share with the player")
     reasoning: str | None = Field(..., description="Reasoning behind the provided information")
-    previous_conversaation: str = Field(..., description="chat history between user and npc")
-    npc_trais: str = Field(..., description="NPC traits - how the npc should act in this state")
 
 class PlanResult(BaseModel):
     player_message: str = Field(..., description="Player inpuyt")
     action: Action | None = Field(..., description="Action to take.")
     transition_condition: FewShotIntent | None = Field(..., description="Transition condition to check.")
     reasoning: str | None = Field(..., description="Reasoning behind the action.")
-    previous_conversaation: str = Field(..., description="chat history between user and npc")
-    npc_trais: str = Field(..., description="NPC traits - how the npc should act in this state") 
+
+# entitiy for scheduled task (e.g. y/n answering)
+# class Task(BaseModel):
+#     type: Literal['']
