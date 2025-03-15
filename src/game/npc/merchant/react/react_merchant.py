@@ -1,13 +1,36 @@
-from typing import List
+from typing import List, Optional
 from game.player.player import Player
-from game.npc.merchant.react.models import ChatHistory, KnowledgeBase, Inventory, \
-    NameDescriptionModel, Quest, Item, StateProtectedResource, \
-    ResonResult, ObservationResult, PlanResult
+from game.npc.merchant.react.models import *
 from game.npc.merchant.react.react_merchant_statemachine import MerchantStateMachine, MachineError
 from game.npc.merchant.react.agents.transition_detection import transition_detection_agent, TransitionDetectionInputSchema
 from game.npc.merchant.react.agents.action_detection import action_detection_agent, ActionDetectionInputSchema
 from game.npc.merchant.react.agents.knowledge_base_worker import knowledge_base_worker_agent, KnowledgeBaseWorkerInputSchema, KnowledgeBaseWorkerOutputSchema
 from game.npc.merchant.react.agents.reflection_reason import reflection_reason_agent, ReflectionReasonInputSchema, ReflectionReasonOutputSchema
+
+## utility functions
+def inventory_transaction(from_inventory: Inventory, to_inventory: Inventory, transaction_value: int, item: Optional[Item] = None) -> TransactionResult:
+    """ on way transaction """
+    result = TransactionResult(is_successful=False)
+    ## check if item is in inventory
+    if item and item not in from_inventory.items:
+        result.reasoning = "Item not found in inventory."
+        return result
+
+    ## check if enough gold
+    if transaction_value > from_inventory.gold:
+        result.reasoning = "Not enough gold."
+        return result
+    
+    ## perform transaction
+    if item:
+        from_inventory.items.remove(item)
+        to_inventory.items.append(item)
+    
+    from_inventory.gold -= transaction_value
+    to_inventory.gold += transaction_value
+
+    result.is_successful = True
+    return result
 
 
 class ReActMerchant:
@@ -92,7 +115,8 @@ class ReActMerchant:
         # act
         ## if actions - call tools
         ## if state transition - iterate state
-        res = self.__action(plan_res)
+        action_phase_res = self.__action(plan_res, player)
+        print(f"[LOG] - Action: {action_phase_res}")
 
         # response
         ## consider action results
@@ -191,12 +215,7 @@ class ReActMerchant:
 
         return knowledge_resp
         
-    def __plan(
-            self, 
-            player_msg: str, 
-            observation_res: ObservationResult, 
-            reason_res: ResonResult, 
-        ):
+    def __plan(self, player_msg: str, observation_res: ObservationResult, reason_res: ResonResult):
         """Decide on actions to take based on observation and reasoning"""
 
         # transitions
@@ -238,28 +257,89 @@ class ReActMerchant:
             reasoning=reflection_res.reasoning,
         )
     
-
-    def __action(self, plan_res: PlanResult):
+    def __action(self, plan_res: PlanResult, player:Player) -> ActionResult:
         """Perform actions and collect results"""
+        result = ActionResult(
+            action=plan_res.action,
+            transition_condition=plan_res.transition_condition,
+            action_is_successful=False,
+            transition_condition_is_successful=False,
+        )
+
         action = plan_res.action
-        if action.confirmation_required:
-            is_confirmed = self.__handle_action_confirmation(action)
-            if not is_confirmed:
-                print("[LOG] - Action rejected.")
-            else: 
-                print("[LOG] - Action confirmed.")
-        pass
+        
+        # try perform action
+        perf_action_result = self.__perform_action(action, player)
+        if not perf_action_result.is_successful:
+            result.action_is_successful = False
+            result.reasoning = perf_action_result.reasoning
+            return result
+        
+        # try perform state transition
+        if plan_res.transition_condition:
+            perf_transition_result = self.__handle_state_transition(plan_res.transition_condition, perf_action_result)
+            if not perf_transition_result.is_successful:
+                result.transition_condition_is_successful = False
+                result.reasoning = perf_transition_result.reasoning
+                return result
+        
+        result.action_is_successful = True
+        result.transition_condition_is_successful = True
+        return result
 
 
-    def __handle_action_confirmation(self, action):
+    def __handle_state_transition(self, transition_condition: FewShotIntent, action_result: PerformActionResult) -> PerformTransitionConditionResult:
+        ''' handle specific actions only '''
+        result = PerformTransitionConditionResult(
+            transition_condition=transition_condition,
+            is_successful=True,
+            reasoning=None
+        )
+
+        if action_result.action.name == 'take_bribe' and not action_result.is_successful:
+            result.is_successful = False
+            result.reasoning = "Bribe declined. State transition failed."
+            return result
+
+        # run state transition
+        try:
+            self.state_machine.transition(transition_condition.name)
+            result.is_successful = True
+        except MachineError as e:
+            result.is_successful = False
+            result.reasoning = str(e)
+        
+        return result
+
+
+    def __perform_action(self, action: Action, player: Player) -> PerformActionResult:
         """ ask for user confirmation """
+        result = PerformActionResult(
+            action=action,
+            is_successful=False,
+            reasoning=None
+        )     
         if action.name == 'take_bribe':
-            price = 5
-            res = input(f"[CONFIRM]: The NPC is requesting {price} gold for action {action.name}. Do you accept? (y/n) ")
+            bribe_price = 5
+            res = input(f"[CONFIRM]: The NPC is requesting {bribe_price} gold for action {action.name}. Do you accept? (y/n) ")
+            if res.lower() == 'yes' or res.lower() == 'y':
+                # perform gold transation
+                transaction_res = inventory_transaction(self.inventory, player.inventory, bribe_price)
+                result.is_successful = transaction_res.is_successful
+                result.reasoning = transaction_res.reasoning
+            else:
+                result.reasoning = "Bribe declined"
+
+        elif action.name == 'give_quest':
+            res = input(f"[CONFIRM]: The NPC is offering you a quest. Do you accept? (y/n) ")
 
             if res.lower() == 'yes' or res.lower() == 'y':
-                return True
-        
-        return False
-
+                result.is_successful = True
+                result.reasoning = "Quest accepted."
+            else:
+                result.reasoning = "Quest declined."
+        else:
+            # eveything else
+            result.is_successful = True
+        return result
 

@@ -174,7 +174,6 @@ class MerchantStateMachine:
         
         self.all_transition_conditions = self._get_all_conditions()
         self.transition_map = {condition.name: condition for condition in self.all_transition_conditions}
-        print(f"Transition map: {self.transition_map}")
         self.action_map = self._get_action_map()
     
     def _get_all_conditions(self):

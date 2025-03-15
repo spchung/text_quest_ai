@@ -134,6 +134,22 @@ class PlanResult(BaseModel):
     transition_condition: FewShotIntent | None = Field(..., description="Transition condition to check.")
     reasoning: str | None = Field(..., description="Reasoning behind the action.")
 
-# entitiy for scheduled task (e.g. y/n answering)
-# class Task(BaseModel):
-#     type: Literal['']
+class PerformActionResult(BaseModel):
+    action: Action | None = Field(..., description="Action attempted")
+    is_successful: bool = Field(..., description="Whether the action was successful or not")
+    reasoning: str | None = Field(..., description="Resaonsing behind the result")
+
+class PerformTransitionConditionResult(BaseModel):
+    transition_condition: FewShotIntent | None = Field(..., description="Transition condition attempted")
+    is_successful: bool = Field(..., description="Whether the transition condition was successful or not")
+    reasoning: str | None = Field(..., description="Resaonsing behind the result")
+
+class TransactionResult(BaseModel):
+    is_successful: bool = Field(..., description="Whether the transaction was successful or not")
+    reasoning: str | None = Field(..., description="Reasoning behind the result")
+
+class ActionResult(BaseModel):
+    transition_condition: FewShotIntent | None = Field(..., description="Transition condition attempted")
+    transition_condition_is_successful: bool = Field(..., description="Whether the transition condition was successful or not")
+    action: Action | None = Field(..., description="Action attempted")
+    action_is_successful: bool = Field(..., description="Whether the action was successful or not")
