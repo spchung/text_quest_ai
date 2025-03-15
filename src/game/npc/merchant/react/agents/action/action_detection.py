@@ -8,6 +8,7 @@ from game.npc.merchant.react.llm_client import llm
 
 class ActionDetectionInputSchema(BaseIOSchema):
     """Input Schema for Action Detection"""
+    previous_conversation: str = Field(..., description="Chat history between user and NPC")
     player_message: str = Field(..., description="The message from the player to the NPC")
     current_state: State = Field(..., description="Current state of the NPC")
 
@@ -23,7 +24,7 @@ action_detection_prompt = SystemPromptGenerator(
         "You have access to a description of each action"
     ],
     steps=[
-        "Carefully analyze the player's message.",
+        "Carefully analyze the player's message in the context of the previous conversation.",
         "Compare it to each action and action description of the current state.",
         "Determine if any of the available action is an appropriate response to the user's message."
     ],

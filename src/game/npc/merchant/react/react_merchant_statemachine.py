@@ -7,23 +7,32 @@ class MerchantStateEnum(Enum):
     UNTRUSTING = 'untrusting'
     TRUSTING = 'trusting'
     HELPFUL = 'helpful'
+
 class MerchantStateMachine:
     state_enum = MerchantStateEnum
 
     init_state = state_enum.UNTRUSTING.value
+
+    base_character_setting = {
+        "name":"Magnus The Wise",
+        "physcical_description":"A tall old man with a cane and a long white beard.",
+        "in_game_role":"Merchant",
+        "description":"A merchant who trades items and information with the player."
+    }
     
     states_map = {
         state_enum.UNTRUSTING.value: State(
             name=state_enum.UNTRUSTING.value,
+            character_setting=CharacterSetting(**base_character_setting, trait="Distant and cold. Greeting the player with limited enthusiasm. You love to keep secrets and trade them for profit."),
             trait="Distant and cold. Greeting the player with limited enthusiasm. You love to keep secrets and trade them for profit.",
             available_actions=[
                 Action(
                     name="basic_info",
-                    description="Provide simple, non-sensitive information from your knowledge base"
+                    description="Provide simple, non-sensitive information from your knowledge base only if the player asks."
                 ),
                 Action(
                     name="question_player",
-                    description="Ask the player questions to determine their intentions."
+                    description="Ask the player questions basic questions like what is your name, where are you from, etc."
                 ),
                 Action(
                     confirmation_required=True,
@@ -34,6 +43,7 @@ class MerchantStateMachine:
         ),
         state_enum.TRUSTING.value: State(
             name=state_enum.TRUSTING.value,
+            character_setting=CharacterSetting(**base_character_setting, trait="Courteous but calculating. Primary objective is to trade items with profit."),
             trait="Courteous but calculating. Primary objective is to trade items with profit.",
             available_actions=[
                 Action(
@@ -58,6 +68,7 @@ class MerchantStateMachine:
         ),
         state_enum.HELPFUL.value: State(
             name=state_enum.HELPFUL.value,
+            character_setting=CharacterSetting(**base_character_setting, trait="Friendly and enthusiastic to help. Tries to offer player quest and secrets that might help the player."),
             trait="Friendly and enthusiastic to help. Tries to offer player quest and secrets that might help the player.",
             available_actions=[
                 Action(
@@ -153,6 +164,7 @@ class MerchantStateMachine:
     )
 
     def __init__(self):
+        self.name = MerchantStateMachine.base_character_setting['name']
         self.machine = Machine(
             model=self, 
             states=[state.name for state in MerchantStateMachine.state_config.states], 

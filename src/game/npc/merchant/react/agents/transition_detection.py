@@ -8,6 +8,7 @@ from game.npc.merchant.react.llm_client import llm
 
 class TransitionDetectionInputSchema(BaseIOSchema):
     """Input schema for the Intent Detection Agent."""
+    previous_conversation: str = Field(..., description="Chat history between user and NPC")
     player_message: str = Field(..., description="The message from the player to the NPC")
     current_state: State = Field(..., description="Current state of the NPC")
     available_transition_conditions: List[FewShotIntent] = Field(..., description="List of available state transition conditions")
@@ -27,8 +28,8 @@ intent_detection_prompt = SystemPromptGenerator(
     steps=[
         "Carefully analyze the player's message.",
         "Compare it to the few-shot examples for each possible intent from the current state.",
+        "Consider the context of the conversation and the current state of the NPC."
         "Detect any matching intents and assign confidence scores.",
-        "Determine if any detected intents should trigger a state transition."
     ],
     output_instructions=[
         "Only detect intents that are truly present in the player's message.",

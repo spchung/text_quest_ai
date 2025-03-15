@@ -3,9 +3,11 @@ from game.player.player import Player
 from game.npc.merchant.react.models import *
 from game.npc.merchant.react.react_merchant_statemachine import MerchantStateMachine, MachineError
 from game.npc.merchant.react.agents.transition_detection import transition_detection_agent, TransitionDetectionInputSchema
-from game.npc.merchant.react.agents.action_detection import action_detection_agent, ActionDetectionInputSchema
+from game.npc.merchant.react.agents.action.action_detection import action_detection_agent, ActionDetectionInputSchema
 from game.npc.merchant.react.agents.knowledge_base_worker import knowledge_base_worker_agent, KnowledgeBaseWorkerInputSchema, KnowledgeBaseWorkerOutputSchema
-from game.npc.merchant.react.agents.reflection_reason import reflection_reason_agent, ReflectionReasonInputSchema, ReflectionReasonOutputSchema
+from game.npc.merchant.react.agents.reflection_reason import reflection_reason_agent, ReflectionReasonInputSchema
+from game.npc.merchant.react.agents.npc_response import response_agent, NpcResponseInputSchema
+from game.npc.merchant.react.agents.action.action_confirmation import action_confirm_agent, ActionConfirmationInputSchema
 
 ## utility functions
 def inventory_transaction(from_inventory: Inventory, to_inventory: Inventory, transaction_value: int, item: Optional[Item] = None) -> TransactionResult:
@@ -31,8 +33,7 @@ def inventory_transaction(from_inventory: Inventory, to_inventory: Inventory, tr
 
     result.is_successful = True
     return result
-
-
+    
 class ReActMerchant:
     def __init__(self):
         self.conversation_history = []
@@ -62,12 +63,17 @@ class ReActMerchant:
                     self.state_machine.state_enum.TRUSTING.value
                 ],
                 data=[
-                    Quest(name="Defeat Evil Dragon", description="Defeat the ancient evil dragon that slumbers beneath the mountain.", reward=1000),
+                    Quest(
+                        name="Defeat Evil Dragon", 
+                        description="Defeat the ancient evil dragon that slumbers beneath the mountain.", 
+                        npc_dialog_option="Prompt the player towards giving the npc a bribe to reveal the dragon's weakness.",
+                        reward=1000
+                    ),
                 ],
             ),
             secrets = StateProtectedResource[List[NameDescriptionModel]](
                 allowed_states=[
-                    self.state_machine.state_enum.TRUSTING.value
+                    self.state_machine.state_enum.HELPFUL.value
                 ],
                 data=[
                     NameDescriptionModel(name="Secret Passage", description="There is a secret passage behind the waterfall that leads to the dragon's lair."),
@@ -96,40 +102,63 @@ class ReActMerchant:
         ## possible state transitions
         ## possible actions to take
         observ_res = self.__observe(player_msg)
-        print(f"[LOG] - observation: {observ_res}")
+        # print(f"[LOG] - observation: {observ_res}")
 
         # reason
         ## consider context 
         ### previous conversation
         ## consider actions
         reason_res = self.__reason(observ_res, player)
-        print(f"[LOG] - Reason: {reason_res}")
+        print(f"[REASON]: {reason_res.reasoning}")
 
         # plan
         ## decide on actions to take
         ## decide on state transitions
         ## consider next response possibilities
         plan_res = self.__plan(player_msg, observ_res, reason_res)
-        print(f"[LOG] - Plan: {plan_res}")
+        print(f"[PLAN]: {plan_res.reasoning}")
 
         # act
         ## if actions - call tools
         ## if state transition - iterate state
         action_phase_res = self.__action(plan_res, player)
-        print(f"[LOG] - Action: {action_phase_res}")
+        print(f"[ACTION]: {action_phase_res.reasoning}")
 
         # response
-        ## consider action results
-        ## consider context
-        ## formulate response
+        npc_response_res = response_agent.run(
+            NpcResponseInputSchema(
+                # if overide player message then use that
+                player_input=action_phase_res.overridden_player_message if action_phase_res.overridden_player_message else player_msg,
+                current_state=self.state_machine.states_map[self.state_machine.state],
+                previous_conversation=self.chat_history.get_last_k_turns(),
+                npc_knowledge_base=self.knowledge_base.get_protected_knowledge(self.state_machine.states_map[self.state_machine.state]),
+                observationStepResult=observ_res,
+                reasonStepResult=reason_res,
+                planStepResult=plan_res,
+                actionStepResult=action_phase_res
+            )
+        )
+
+        self.chat_history.add_npc(npc_response_res.npc_response)
+
+        print("\n==============================================")
+        print(f"[LOG] - NPC State: {self.state_machine.state}")
+        print(f"[LOG] - NPC Action: {action_phase_res.action.name if action_phase_res.action else 'None'}")
+        print(f"[LOG] - NPC Transition: {action_phase_res.transition_condition.name if action_phase_res.transition_condition else 'None'}")
+        print(f"[LOG] - NPC Plan Reasoning: {plan_res.reasoning}")
+        print("==============================================\n")
+        
+        print(f"{self.state_machine.name}: {npc_response_res.npc_response}\n")
 
     def __observe(self, msg, confidence_threshold=0.7) -> ObservationResult:
         """Extract relevant information from player message and game state"""
         # - Possible State transitions
         # - Possible actions to take
         # - Sentiment (friendly, hostile, neutral)
+
         transition_resp = transition_detection_agent.run(
             TransitionDetectionInputSchema(
+                previous_conversation=self.chat_history.get_last_k_turns(),
                 player_message=msg,
                 current_state=self.state_machine.states_map[self.state_machine.state],
                 available_transition_conditions=self.state_machine.all_transition_conditions
@@ -141,6 +170,7 @@ class ReActMerchant:
         ## actions (maybe move to plan?)
         action_resp = action_detection_agent.run(
             ActionDetectionInputSchema(
+                previous_conversation=self.chat_history.get_last_k_turns(),
                 player_message=msg,
                 current_state=self.state_machine.states_map[self.state_machine.state],
             )
@@ -176,7 +206,7 @@ class ReActMerchant:
         ## consider knowledge base
         relevant_knowledge = self.__collect_relevant_knowledge(observe_res)
 
-        return ResonResult(
+        return ReasonResult(
             information=relevant_knowledge.information if relevant_knowledge else None,
             reasoning=relevant_knowledge.reasoning if relevant_knowledge else None,
         )
@@ -215,7 +245,7 @@ class ReActMerchant:
 
         return knowledge_resp
         
-    def __plan(self, player_msg: str, observation_res: ObservationResult, reason_res: ResonResult):
+    def __plan(self, player_msg: str, observation_res: ObservationResult, reason_res: ReasonResult):
         """Decide on actions to take based on observation and reasoning"""
 
         # transitions
@@ -227,8 +257,6 @@ class ReActMerchant:
         action_name = None
         if observation_res.action:
             action_name = observation_res.action
-
-        print("[WARN] - PLAN llm logic not implemented yet")
         
         reflection_res = reflection_reason_agent.run(
             ReflectionReasonInputSchema(
@@ -285,8 +313,9 @@ class ReActMerchant:
         
         result.action_is_successful = True
         result.transition_condition_is_successful = True
+        result.reasoning = perf_action_result.reasoning
+        result.overridden_player_message = perf_action_result.overridden_player_message
         return result
-
 
     def __handle_state_transition(self, transition_condition: FewShotIntent, action_result: PerformActionResult) -> PerformTransitionConditionResult:
         ''' handle specific actions only '''
@@ -311,35 +340,102 @@ class ReActMerchant:
         
         return result
 
-
     def __perform_action(self, action: Action, player: Player) -> PerformActionResult:
         """ ask for user confirmation """
         result = PerformActionResult(
             action=action,
             is_successful=False,
             reasoning=None
-        )     
+        )
+        if action is None:
+            result.is_successful = True
+            result.reasoning = "No action to perform."
+            return result
+
+
         if action.name == 'take_bribe':
             bribe_price = 5
-            res = input(f"[CONFIRM]: The NPC is requesting {bribe_price} gold for action {action.name}. Do you accept? (y/n) ")
+            prompt = action_confirm_agent.run(
+                ActionConfirmationInputSchema(
+                    current_state=self.state_machine.states_map[self.state_machine.state],
+                    action=action,
+                    npc_knowledge_base=self.knowledge_base.get_protected_knowledge(self.state_machine.states_map[self.state_machine.state]),
+                    context={"bribe_price": "5 gold coins"}
+                )
+            ).response
+
+            res = input(f"{prompt} (y/n) ")
             if res.lower() == 'yes' or res.lower() == 'y':
                 # perform gold transation
                 transaction_res = inventory_transaction(self.inventory, player.inventory, bribe_price)
                 result.is_successful = transaction_res.is_successful
                 result.reasoning = transaction_res.reasoning
+                result.overridden_player_message = "I have paid the bribe."
             else:
                 result.reasoning = "Bribe declined"
+                result.overridden_player_message = "I have declined the bribe."
 
         elif action.name == 'give_quest':
-            res = input(f"[CONFIRM]: The NPC is offering you a quest. Do you accept? (y/n) ")
+            state_knowledge = self.knowledge_base.get_protected_knowledge(self.state_machine.states_map[self.state_machine.state]),
+            prompt = action_confirm_agent.run(
+                ActionConfirmationInputSchema(
+                    current_state=self.state_machine.states_map[self.state_machine.state],
+                    action=action,
+                    npc_knowledge_base=state_knowledge[0] if state_knowledge else None,
+                    context=state_knowledge[0].quests if state_knowledge else None,
+                )
+            ).response
+
+            res = input(f"{prompt} (y/n) ")
 
             if res.lower() == 'yes' or res.lower() == 'y':
+                ## TODO: dynamicly get quest
+                self.__give_quest(state_knowledge[0].quests[0], player)
+                
                 result.is_successful = True
-                result.reasoning = "Quest accepted."
+                result.reasoning = "The player has accepted the quest. Assume the quest has been added to the player's quest log."
+                result.overridden_player_message = "I have accepted the quest."
             else:
                 result.reasoning = "Quest declined."
+                result.overridden_player_message = "I have declined the quest."
+
+        elif action.name == "trade":
+            state_knowledge = self.knowledge_base.get_protected_knowledge(self.state_machine.states_map[self.state_machine.state]),
+            prompt = action_confirm_agent.run(
+                ActionConfirmationInputSchema(
+                    current_state=self.state_machine.states_map[self.state_machine.state],
+                    action=action,
+                    npc_knowledge_base=state_knowledge[0] if state_knowledge else None,
+                    context=self.inventory,
+                )
+            ).response
+
+            res = input(f"{prompt} (y/n) ")
+            if res.lower() == 'yes' or res.lower() == 'y':
+                ### TODO: TRADE AGENT
+                ## ENTER TRADE MODE
+                '''
+                1. provide list of items
+                2. user input what they want
+                3. try to trade (perform transaction)
+                4. complete or retry
+                '''
+                ##
+                result.is_successful = True
+                result.reasoning = "Trade accepted."
+            else:
+                result.reasoning = "Trade offer declined."
+                result.overridden_player_message = "I have declined the trade offer."
+
         else:
-            # eveything else
             result.is_successful = True
+
         return result
 
+    def __give_quest(self, quest: Quest, player: Player) -> None:
+        # add quest to player quest log
+        player.quest_log.append(quest)
+
+        # mark quest as given
+        quest.is_given = True
+        

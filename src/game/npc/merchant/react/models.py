@@ -35,8 +35,15 @@ class FewShotIntent(BaseModel):
     def __hash__(self):
         return hash(self.name)
 
+class CharacterSetting(BaseModel):
+    name: str = Field(..., description="Name of the NPC")
+    physcical_description: str = Field(..., description="Description of the NPC")
+    in_game_role: str = Field(..., description="Role of the NPC in the game")
+    trait: str | None = Field(default=None, description="Trait of the NPC character")
+
 class State(BaseModel):
     name: str
+    character_setting: CharacterSetting
     trait: str # how the npc should act in this state
     available_actions: List[Action]
 
@@ -56,7 +63,6 @@ class StateTransition(BaseModel):
 class NpcConfig(BaseModel):
     states: List[State]
     transitions: List[StateTransition]
-
 ## CHAT HISTORY
 class Message(BaseModel):
     timestamp: float = Field(default=time.time())
@@ -97,34 +103,35 @@ class Inventory(BaseModel):
 class Quest(BaseModel):
     name: str = Field(..., description='Name of the quest')
     description: str = Field(..., description='Description of the quest')
+    npc_dialog_option: str | None = Field(default=None, description="Dialog options the NPC might consider when describing this quest.")
     reward: int = Field(..., description='Reward for completing the quest (in gold coins).')
-
-class KnowledgeBase(BaseModel):
-    quests: StateProtectedResource[List[Quest]] = Field(..., description="List of quests that npc knows of.")
-    secrets: StateProtectedResource[List[NameDescriptionModel]] = Field(..., description="List of secrets that will help the player during quests tha the npc knows of.")
-    generic_info: StateProtectedResource[List[NameDescriptionModel]] = Field(..., description="Basic information the npc knows about the environments.")
-
-    def get_protected_knowledge(self, state: State):
-        """Return a protected knowledge base for the given state"""
-        quests = [q for q in self.quests.data if state.name in self.quests.allowed_states]
-        secrets = [s for s in self.secrets.data if state.name in self.secrets.allowed_states]
-        generic_info = [g for g in self.generic_info.data if state.name in self.generic_info.allowed_states]
-
-        return ProtectedKnowledgeBase(quests=quests, secrets=secrets, generic_info=generic_info)
+    is_given: bool = Field(default=False, description='Whether the quest has been given to the player or not.')
 
 class ProtectedKnowledgeBase(BaseModel):
     quests: List[Quest] = Field(..., description="List of quests that npc knows of.")
     secrets: List[NameDescriptionModel] = Field(..., description="List of secrets that will help the player during quests tha the npc knows of.")
     generic_info: List[NameDescriptionModel] = Field(..., description="Basic information the npc knows about the environments.")
 
+class KnowledgeBase(BaseModel):
+    quests: StateProtectedResource[List[Quest]] = Field(..., description="List of quests that npc knows of.")
+    secrets: StateProtectedResource[List[NameDescriptionModel]] = Field(..., description="List of secrets that will help the player during quests tha the npc knows of.")
+    generic_info: StateProtectedResource[List[NameDescriptionModel]] = Field(..., description="Basic information the npc knows about the environments.")
 
+    def get_protected_knowledge(self, state: State) -> ProtectedKnowledgeBase:
+        """Return a protected knowledge base for the given state"""
+        quests = [q for q in self.quests.data if state.name in self.quests.allowed_states]
+        secrets = [s for s in self.secrets.data if state.name in self.secrets.allowed_states]
+        generic_info = [g for g in self.generic_info.data if state.name in self.generic_info.allowed_states]
+
+        return ProtectedKnowledgeBase(quests=quests, secrets=secrets, generic_info=generic_info)
+        
 ## ReAct Logic
 class ObservationResult(BaseModel):
     condition: str | None = Field(..., description="Detected transition condition.")
     action: str | None = Field(..., description="Detected action.")
-    sentiment: str | None = Field(..., description="Detected sentiment.")
+    sentiment: Literal['positive', 'negative'] | None = Field(..., description="Detected sentiment.")
 
-class ResonResult(BaseModel):
+class ReasonResult(BaseModel):
     information: List[str] | None = Field(..., description="List of relevant information to share with the player")
     reasoning: str | None = Field(..., description="Reasoning behind the provided information")
 
@@ -138,6 +145,7 @@ class PerformActionResult(BaseModel):
     action: Action | None = Field(..., description="Action attempted")
     is_successful: bool = Field(..., description="Whether the action was successful or not")
     reasoning: str | None = Field(..., description="Resaonsing behind the result")
+    overridden_player_message: str | None = Field(default=None, description="The new player message to be used in the next step.")
 
 class PerformTransitionConditionResult(BaseModel):
     transition_condition: FewShotIntent | None = Field(..., description="Transition condition attempted")
@@ -146,10 +154,12 @@ class PerformTransitionConditionResult(BaseModel):
 
 class TransactionResult(BaseModel):
     is_successful: bool = Field(..., description="Whether the transaction was successful or not")
-    reasoning: str | None = Field(..., description="Reasoning behind the result")
+    reasoning: str | None = Field(default=None, description="Reasoning behind the result")
 
 class ActionResult(BaseModel):
     transition_condition: FewShotIntent | None = Field(..., description="Transition condition attempted")
     transition_condition_is_successful: bool = Field(..., description="Whether the transition condition was successful or not")
     action: Action | None = Field(..., description="Action attempted")
-    action_is_successful: bool = Field(..., description="Whether the action was successful or not")
+    action_is_successful: bool = Field(..., description="Whether the action was successful or not.")
+    reasoning: str | None = Field(default=None, description="Reasoning for the success or failure of this action.")
+    overridden_player_message: str | None = Field(default=None, description="The new player message to be used in the next step.")

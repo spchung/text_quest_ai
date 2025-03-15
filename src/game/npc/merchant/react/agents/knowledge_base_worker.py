@@ -2,7 +2,6 @@ import instructor
 from pydantic import Field
 from typing import List
 from game.npc.merchant.react.models import *
-from game.npc.merchant.react.models import State, ProtectedKnowledgeBase, Inventory, FewShotIntent
 from atomic_agents.agents.base_agent import BaseAgent, BaseAgentConfig, BaseIOSchema
 from atomic_agents.lib.components.system_prompt_generator import SystemPromptGenerator
 from game.npc.merchant.react.llm_client import llm
@@ -13,7 +12,6 @@ An agent that find the most relavant information using
 - current_state attributes
 - detected transition conditions
 - detected actions
-- 
 """
 
 class KnowledgeBaseWorkerInputSchema(BaseIOSchema):

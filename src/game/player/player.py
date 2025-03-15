@@ -7,6 +7,7 @@ class Player:
         self.inventory = Inventory(gold=100)
         self.health = 100
         self.level = 1
+        self.quest_log = []
     
     def set_name(self, name):
         self.name = name
