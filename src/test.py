@@ -14,8 +14,9 @@ script2 = [
     "I will offer you gold for any information",
 ]
 
-script3 = [
-
+trade_script = [
+    "Hello there, I am Stephen the Great!", 
+    "I would like to trade with you",
 ]
 
 def next_message(script):
@@ -31,7 +32,7 @@ def main():
     merchant = ReActMerchant()
 
     while True:
-        player_message = next_message(script)
+        player_message = next_message(trade_script)
 
         merchant.process_input(player_message, player)
     

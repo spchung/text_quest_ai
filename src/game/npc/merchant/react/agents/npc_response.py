@@ -15,7 +15,6 @@ class NpcResponseInputSchema(BaseIOSchema):
     npc_knowledge_base: ProtectedKnowledgeBase = Field(..., description="Knowledge base of the NPC in the current state")
     actionStepResult: ActionResult = Field(..., description="Action step results.")
 
-
 class NpcResponseOutputSchema(BaseIOSchema):
     """Output schema for the NPC Response Agent."""
     npc_response: str = Field(..., description="NPC's response to the player input")

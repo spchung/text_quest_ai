@@ -24,7 +24,7 @@ class MerchantStateMachine:
         state_enum.UNTRUSTING.value: State(
             name=state_enum.UNTRUSTING.value,
             character_setting=CharacterSetting(**base_character_setting, trait="Distant and cold. Greeting the player with limited enthusiasm. You love to keep secrets and trade them for profit."),
-            trait="Distant and cold. Greeting the player with limited enthusiasm. You love to keep secrets and trade them for profit.",
+            trait="Distant and cold. Greeting the player with limited enthusiasm.",
             available_actions=[
                 Action(
                     name="basic_info",

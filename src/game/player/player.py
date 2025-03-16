@@ -2,9 +2,9 @@ from pydantic import BaseModel
 from game.npc.merchant.react.models import *
     
 class Player:
-    def __init__(self):
+    def __init__(self, gold=100):
         self.name = 'unknown'
-        self.inventory = Inventory(gold=100, items=[])
+        self.inventory = Inventory(gold=gold, items=[])
         self.health = 100
         self.level = 1
         self.quest_log = []

@@ -8,6 +8,7 @@ from game.npc.merchant.react.agents.knowledge_base_worker import knowledge_base_
 from game.npc.merchant.react.agents.reflection_reason import reflection_reason_agent, ReflectionReasonInputSchema
 from game.npc.merchant.react.agents.npc_response import response_agent, NpcResponseInputSchema
 from game.npc.merchant.react.agents.action.action_confirmation import action_confirm_agent, ActionConfirmationInputSchema
+from game.npc.merchant.react.sub_system.trade import TradeSystem
 
 ## utility functions
 def inventory_transaction(from_inventory: Inventory, to_inventory: Inventory, transaction_value: int, item: Optional[Item] = None) -> TransactionResult:
@@ -194,14 +195,6 @@ class ReActMerchant:
 
     def __reason(self, observe_res: ObservationResult, player: Player):
         '''All context and reasoning'''
-        ## condiser state attributes
-        current_state = self.state_machine.states_map[self.state_machine.state]
-        
-        ### emption/attitude
-        npc_traits = current_state.trait
-
-        # ## consider chat history
-        # prev_convo = self.chat_history.get_last_k_turns()
 
         ## consider knowledge base
         relevant_knowledge = self.__collect_relevant_knowledge(observe_res)
@@ -412,17 +405,21 @@ class ReActMerchant:
 
             res = input(f"{prompt} (y/n) ")
             if res.lower() == 'yes' or res.lower() == 'y':
-                ### TODO: TRADE AGENT
-                ## ENTER TRADE MODE
-                '''
-                1. provide list of items
-                2. user input what they want
-                3. try to trade (perform transaction)
-                4. complete or retry
-                '''
+                ## get traits
+                current_state = self.state_machine.states_map[self.state_machine.state]
+                npc_traits = current_state.trait
+
+                trade_sub_system = TradeSystem(player.inventory, self.inventory, npc_traits)
+                while trade_sub_system.completed == False:
+                    if not trade_sub_system.initiaited:
+                        print(f"[TRADING]: {trade_sub_system.greeting()}")
+                    else:
+                        res = trade_sub_system.process_input(input("You: "))
+                        print(f"[TRADING]: {res}")
                 ##
                 result.is_successful = True
                 result.reasoning = "Trade accepted."
+                result.overridden_player_message = "Thanks for the trade. I am happy with the deal."
             else:
                 result.reasoning = "Trade offer declined."
                 result.overridden_player_message = "I have declined the trade offer."

@@ -5,9 +5,7 @@ from game.player.player import Player
 from game.npc.merchant.react.sub_system.trade import TradeSystem
 
 script = [
-    # "Hello there, I am Stephen the Great!", 
-    # "I come from the east and is eager to help.",
-    # "I am looking for some adventure"
+    'I want the staff'
 ]
 
 def next_message(script):
@@ -19,8 +17,9 @@ def next_message(script):
         return input("You: ")
     
 def main():
-    player = Player()
+    player = Player(gold=50)
     merchant = ReActMerchant()
+    merchant.state_machine.transition('player_offer_bribe')
     trade_sys = TradeSystem(player, merchant)
 
 
