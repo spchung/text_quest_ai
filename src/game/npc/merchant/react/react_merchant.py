@@ -389,7 +389,7 @@ class ReActMerchant:
             res = input(f"{prompt} (y/n) ")
 
             if res.lower() == 'yes' or res.lower() == 'y':
-                ## TODO: dynamicly get quest
+                ## TODO: dynamicly get quest (OPTIONAL)
                 self.__give_quest(state_knowledge[0].quests[0], player)
                 
                 result.is_successful = True

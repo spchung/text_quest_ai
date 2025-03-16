@@ -26,6 +26,7 @@ class Action(BaseModel):
 class FewShotIntent(BaseModel):
     name: str
     examples: List[str] # example text that this intent should look like
+    description: str | None = Field(default=None, description="Description of the intent")
     
     def __eq__(self, other):
         if not isinstance(other, FewShotIntent):
